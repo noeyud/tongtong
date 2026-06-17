@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>통통 점프 — BGM 미리듣기</title>
+<style>
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+body { margin:0; min-height:100vh; background:linear-gradient(160deg,#E8F3FF,#fff 60%); color:#191F28;
+  font-family:'Toss Product Sans',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Segoe UI',Roboto,sans-serif;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; }
+h1 { font-size:22px; margin:0 0 4px; }
+p.sub { color:#8B95A1; font-size:14px; margin:0 0 20px; }
+#app { width:100%; max-width:420px; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.row { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+.row .b { flex:1; }
+button.b { border:0; border-radius:14px; padding:16px 12px; font-size:15px; font-weight:700;
+  background:#fff; color:#191F28; box-shadow:0 2px 10px rgba(0,0,0,.08); cursor:pointer; }
+button.b:active { transform:scale(.97); }
+.row .b { background:#3182F6; color:#fff; }
+.now { margin-top:18px; text-align:center; color:#4E5968; font-size:14px; font-weight:600;
+  background:#F2F4F6; border-radius:12px; padding:12px; }
+</style>
+</head>
+<body>
+<h1>🎵 통통 점프 — BGM 미리듣기</h1>
+<p class="sub">스테이지별 배경음과 지옥 인트로(바흐 토카타)를 들어보세요</p>
+<div id="app"></div>
+<script type="module">
+// music.ts
+var actx = null;
+var master = null;
+var muted = false;
+try {
+  muted = localStorage.getItem("ait-muted") === "1";
+} catch {
+}
+var VOL = 0.42;
+var running = false;
+var curStage = 1;
+var loopPos = 0;
+var nextStepTime = 0;
+var introUntil = 0;
+var timer = null;
+var sources = [];
+function getCtx() {
+  try {
+    if (!actx) {
+      const AC = window.AudioContext ?? window.webkitAudioContext;
+      if (!AC) return null;
+      actx = new AC();
+      master = actx.createGain();
+      master.gain.value = 0;
+      master.connect(actx.destination);
+    }
+    if (actx.state === "suspended") void actx.resume();
+    return actx;
+  } catch {
+    return null;
+  }
+}
+function unlock() {
+  getCtx();
+}
+function isMuted() {
+  return muted;
+}
+function setMuted(m) {
+  muted = m;
+  try {
+    localStorage.setItem("ait-muted", m ? "1" : "0");
+  } catch {
+  }
+  if (actx && master) {
+    const target = m ? 0 : running ? VOL : 0;
+    master.gain.setTargetAtTime(target, actx.currentTime, 0.02);
+  }
+}
+var SEMI = {
+  C: 0,
+  "C#": 1,
+  Db: 1,
+  D: 2,
+  "D#": 3,
+  Eb: 3,
+  E: 4,
+  F: 5,
+  "F#": 6,
+  Gb: 6,
+  G: 7,
+  "G#": 8,
+  Ab: 8,
+  A: 9,
+  "A#": 10,
+  Bb: 10,
+  B: 11
+};
+function nf(name) {
+  const m = /^([A-G][#b]?)(\d)$/.exec(name);
+  if (!m) return 0;
+  const semi = SEMI[m[1]];
+  const midi = (parseInt(m[2], 10) + 1) * 12 + semi;
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+function parse(s) {
+  return s.trim().split(/\s+/).map((t) => t === "." ? 0 : nf(t));
+}
+var TRACKS = [
+  // 1 아침
+  {
+    bpm: 100,
+    wave: "triangle",
+    drums: false,
+    mel: parse("C5 . E5 . G5 . E5 . A4 . C5 . E5 . D5 ."),
+    bass: parse("C3 . . . G2 . . . A2 . . . F2 . . .")
+  },
+  // 2 노을
+  {
+    bpm: 92,
+    wave: "triangle",
+    drums: false,
+    mel: parse("F4 A4 C5 A4 F4 G4 A4 C5 D5 C5 A4 G4 F4 A4 G4 ."),
+    bass: parse("F2 . . . C3 . . . D3 . . . C3 . . .")
+  },
+  // 3 밤하늘
+  {
+    bpm: 88,
+    wave: "sine",
+    drums: false,
+    mel: parse("A4 . C5 . E5 . D5 . C5 . B4 . A4 . E4 ."),
+    bass: parse("A2 . . . F2 . . . G2 . . . E2 . . .")
+  },
+  // 4 우주
+  {
+    bpm: 80,
+    wave: "sine",
+    drums: false,
+    mel: parse("E5 . . B4 . . D5 . . A4 . . E4 . . ."),
+    bass: parse("E2 . . . . . . . C2 . . . . . . .")
+  },
+  // 5 오로라
+  {
+    bpm: 96,
+    wave: "triangle",
+    drums: false,
+    mel: parse("D5 E5 F5 A5 G5 F5 E5 D5 C5 D5 E5 F5 E5 D5 . ."),
+    bass: parse("D3 . . . A2 . . . Bb2 . . . A2 . . .")
+  },
+  // 6 지옥 — 드라이빙
+  {
+    bpm: 140,
+    wave: "sawtooth",
+    drums: true,
+    mel: parse("D5 . D5 D5 . D5 . A4 . Bb4 . A4 . G4 . F4"),
+    bass: parse("D2 D2 D2 D2 D2 D2 D2 D2 Bb1 Bb1 Bb1 Bb1 A1 A1 A1 A1")
+  }
+];
+function track() {
+  return TRACKS[Math.min(curStage, TRACKS.length) - 1];
+}
+function voice(freq, t0, dur, type, vol) {
+  if (!actx || !master || freq <= 0) return;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(1e-4, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(1e-4, t0 + dur);
+  o.connect(g).connect(master);
+  o.start(t0);
+  o.stop(t0 + dur + 0.03);
+  sources.push(o);
+}
+function kick(t0) {
+  if (!actx || !master) return;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(150, t0);
+  o.frequency.exponentialRampToValueAtTime(45, t0 + 0.12);
+  g.gain.setValueAtTime(0.55, t0);
+  g.gain.exponentialRampToValueAtTime(1e-4, t0 + 0.17);
+  o.connect(g).connect(master);
+  o.start(t0);
+  o.stop(t0 + 0.19);
+  sources.push(o);
+}
+function playStep(pos, t) {
+  if (t < introUntil) return;
+  const tr = track();
+  voice(tr.mel[pos], t, 30 / tr.bpm * 1.6, tr.wave, tr.drums ? 0.12 : 0.16);
+  voice(tr.bass[pos], t, 30 / tr.bpm * 1.5, tr.drums ? "sawtooth" : "triangle", 0.17);
+  if (tr.drums && pos % 2 === 0) kick(t);
+}
+function scheduler() {
+  if (!running || !actx) return;
+  const secPerStep = 30 / track().bpm;
+  while (nextStepTime < actx.currentTime + 0.12) {
+    playStep(loopPos, nextStepTime);
+    nextStepTime += secPerStep;
+    loopPos = (loopPos + 1) % 16;
+  }
+  timer = setTimeout(scheduler, 25);
+}
+function playHellIntro() {
+  if (!actx) return;
+  const t0 = actx.currentTime + 0.06;
+  const seq = [
+    // [음, 시작(초), 길이, 볼륨]  — 디~로리
+    ["A5", 0, 0.16, 0.24],
+    ["G5", 0.16, 0.09, 0.22],
+    ["A5", 0.25, 0.55, 0.24],
+    // 하강 런
+    ["G5", 0.98, 0.12, 0.2],
+    ["F5", 1.1, 0.12, 0.2],
+    ["E5", 1.22, 0.12, 0.2],
+    ["D5", 1.34, 0.12, 0.2],
+    ["C#5", 1.46, 0.12, 0.2],
+    ["D5", 1.58, 0.42, 0.22],
+    // 큰 코드
+    ["D4", 2.1, 1, 0.16],
+    ["F4", 2.1, 1, 0.16],
+    ["A4", 2.1, 1, 0.16],
+    // 낮은 메아리
+    ["A4", 3.25, 0.16, 0.22],
+    ["G4", 3.41, 0.09, 0.2],
+    ["A4", 3.5, 0.5, 0.22],
+    ["F4", 4.05, 0.12, 0.2],
+    ["E4", 4.17, 0.12, 0.2],
+    ["D4", 4.29, 0.12, 0.2],
+    ["C#4", 4.41, 0.12, 0.2],
+    ["D4", 4.53, 0.5, 0.22],
+    // 최종 저음 코드(여기서 비트 드랍)
+    ["D3", 5, 1.4, 0.18],
+    ["F3", 5, 1.4, 0.18],
+    ["A3", 5, 1.4, 0.18]
+  ];
+  for (const [name, at, dur, vol] of seq) {
+    voice(nf(name), t0 + at, dur, "sawtooth", vol);
+  }
+  introUntil = t0 + 5;
+}
+function start(stageNo) {
+  if (!getCtx() || !actx || !master) return;
+  curStage = stageNo;
+  loopPos = 0;
+  introUntil = 0;
+  running = true;
+  master.gain.setTargetAtTime(muted ? 0 : VOL, actx.currentTime, 0.03);
+  nextStepTime = actx.currentTime + 0.1;
+  if (timer) clearTimeout(timer);
+  scheduler();
+}
+function setStage(stageNo) {
+  if (curStage === stageNo) return;
+  curStage = stageNo;
+  loopPos = 0;
+  if (stageNo === 6) playHellIntro();
+  else introUntil = 0;
+}
+function stop() {
+  running = false;
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  if (actx && master) master.gain.setTargetAtTime(0, actx.currentTime, 0.04);
+  const now = actx ? actx.currentTime : 0;
+  for (const o of sources) {
+    try {
+      o.stop(now);
+    } catch {
+    }
+  }
+  sources = [];
+}
+
+// preview.ts
+var nowEl = null;
+function setNow(s) {
+  if (nowEl) nowEl.textContent = s;
+}
+function makeBtn(label, fn) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.className = "b";
+  b.addEventListener("click", () => {
+    unlock();
+    fn();
+  });
+  return b;
+}
+window.addEventListener("DOMContentLoaded", () => {
+  const app = document.getElementById("app");
+  if (!app) return;
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  const names = [
+    "1 \xB7 \uC544\uCE68 \uD558\uB298",
+    "2 \xB7 \uB178\uC744",
+    "3 \xB7 \uBC24\uD558\uB298",
+    "4 \xB7 \uC6B0\uC8FC",
+    "5 \xB7 \uC624\uB85C\uB77C",
+    "6 \xB7 \uC9C0\uC625 (\uB8E8\uD504)"
+  ];
+  names.forEach((nm, i) => {
+    grid.appendChild(
+      makeBtn(nm, () => {
+        start(i + 1);
+        setNow("\uC7AC\uC0DD \uC911: " + nm);
+      })
+    );
+  });
+  app.appendChild(grid);
+  const row = document.createElement("div");
+  row.className = "row";
+  row.appendChild(
+    makeBtn("\u{1F525} \uC9C0\uC625 \uC778\uD2B8\uB85C\uBD80\uD130 (\uD1A0\uCE74\uD0C0 BWV 565)", () => {
+      start(5);
+      setStage(6);
+      setNow("\uC7AC\uC0DD \uC911: \uC9C0\uC625 \uC778\uD2B8\uB85C \u2192 \uBE44\uD2B8 \uB4DC\uB78D");
+    })
+  );
+  row.appendChild(
+    makeBtn("\u23F9 \uC815\uC9C0", () => {
+      stop();
+      setNow("\uC815\uC9C0\uB428");
+    })
+  );
+  const mute = makeBtn(isMuted() ? "\u{1F507} \uC74C\uC18C\uAC70 \uD574\uC81C" : "\u{1F50A} \uC74C\uC18C\uAC70", () => {
+    setMuted(!isMuted());
+    mute.textContent = isMuted() ? "\u{1F507} \uC74C\uC18C\uAC70 \uD574\uC81C" : "\u{1F50A} \uC74C\uC18C\uAC70";
+  });
+  row.appendChild(mute);
+  app.appendChild(row);
+  nowEl = document.createElement("div");
+  nowEl.className = "now";
+  nowEl.textContent = "\uBC84\uD2BC\uC744 \uB20C\uB7EC \uB4E4\uC5B4\uBCF4\uC138\uC694 (\uC2A4\uD14C\uC774\uC9C0\uB97C \uBC14\uAFB8\uBA74 \uC989\uC2DC \uC804\uD658)";
+  app.appendChild(nowEl);
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# 의존성 (용량 큼 — 올리지 않음)
+node_modules/
+
+# 빌드 산출물
+dist/
+nd/
+*.tsbuildinfo
+
+# 에디터/OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 로그
+*.log
+npm-debug.log*
+
+# 환경 변수 (혹시 비밀키 쓰게 되면)
+.env
+.env.local

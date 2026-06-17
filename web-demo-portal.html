@@ -1,0 +1,1751 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>통통 점프 — 포탈 모드</title>
+<meta name="theme-color" content="#E8F3FF" />
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }
+html,body { width:100%; height:100%; overflow:hidden; background:#e8f3ff; touch-action:none; overscroll-behavior:none;
+  font-family:'Toss Product Sans', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Segoe UI', Roboto, sans-serif; }
+#game { display:block; width:100%; height:100%; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+  window.AIT_LEADERBOARD = { supabaseUrl: "https://qdxmexgbvczmlcekuqqj.supabase.co", supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkeG1leGdidmN6bWxjZWt1cXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MjgyMTAsImV4cCI6MjA5NzIwNDIxMH0.VzBYg_07encpuNpnIQqOqe5J_FI3ykwXQS9Kz4k8030" };
+</script>
+<script type="module">
+// bridge.ts
+function haptic(_t) {
+}
+async function loadBest(mode2) {
+  try {
+    return Number(localStorage.getItem("flappy-best-" + mode2)) || 0;
+  } catch {
+    return 0;
+  }
+}
+function saveBest(mode2, score2) {
+  try {
+    localStorage.setItem("flappy-best-" + mode2, String(score2));
+  } catch {
+  }
+}
+
+// leaderboard.ts
+function cfg() {
+  const c = window.AIT_LEADERBOARD;
+  if (c && c.supabaseUrl && c.supabaseAnonKey) return c;
+  return null;
+}
+function isOnline() {
+  return cfg() !== null;
+}
+var BANNED = [
+  "\uC2DC\uBC1C",
+  "\uC528\uBC1C",
+  "\uC528\uBC14",
+  "\uC2DC\uBC14",
+  "\u3145\u3142",
+  "\uBCD1\uC2E0",
+  "\u3142\u3145",
+  "\uC9C0\uB784",
+  "\u3148\u3139",
+  "\uC886",
+  "\uC874\uB098",
+  "\uAC1C\uC0C8",
+  "\uC0C8\uB07C",
+  "\uAEBC\uC838",
+  "\uB2E5\uCCD0",
+  "\uBCF4\uC9C0",
+  "\uC790\uC9C0",
+  "\uC139\uC2A4",
+  "\uC345",
+  "\uC5E0\uCC3D",
+  "\uB290\uAE08",
+  "\uB2C8\uC560\uBBF8",
+  "\uCC3D\uB140",
+  "\uAC78\uB808",
+  "\uB4F1\uC2E0",
+  "\uD55C\uB0A8",
+  "\uAE40\uCE58\uB140",
+  "\uB41C\uC7A5\uB140",
+  "\uD398\uBBF8",
+  "\uC77C\uBCA0",
+  "\uC6B4\uC9C0",
+  "fuck",
+  "fck",
+  "shit",
+  "bitch",
+  "asshole",
+  "dick",
+  "pussy",
+  "cunt",
+  "sex",
+  "porn",
+  "nigger",
+  "faggot",
+  "bastard"
+];
+function normalize(s) {
+  return s.toLowerCase().replace(/\s+/g, "");
+}
+function isBannedName(name) {
+  const n = normalize(name);
+  if (!n) return true;
+  return BANNED.some((w) => n.includes(normalize(w)));
+}
+function nickError(raw) {
+  const n = raw.trim();
+  if (n.length < 2) return "\uB2C9\uB124\uC784\uC740 2\uC790 \uC774\uC0C1\uC774\uC5B4\uC57C \uD574\uC694";
+  if (n.length > 10) return "\uB2C9\uB124\uC784\uC740 \uCD5C\uB300 10\uC790\uC608\uC694";
+  if (isBannedName(n)) return "\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294 \uB2C9\uB124\uC784\uC774\uC5D0\uC694";
+  return null;
+}
+var NICK_KEY = "ait-nick";
+function getNick() {
+  try {
+    return localStorage.getItem(NICK_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+function setNick(n) {
+  try {
+    localStorage.setItem(NICK_KEY, n);
+  } catch {
+  }
+}
+function headers(c) {
+  return {
+    apikey: c.supabaseAnonKey,
+    Authorization: `Bearer ${c.supabaseAnonKey}`,
+    "Content-Type": "application/json"
+  };
+}
+async function submitScore(mode2, name, score2) {
+  const c = cfg();
+  if (!c || !name || score2 <= 0 || isBannedName(name)) return;
+  try {
+    await fetch(`${c.supabaseUrl}/rest/v1/scores`, {
+      method: "POST",
+      headers: { ...headers(c), Prefer: "return=minimal" },
+      body: JSON.stringify({ name, mode: mode2, score: score2 })
+    });
+  } catch {
+  }
+}
+async function fetchBoard(mode2) {
+  const c = cfg();
+  if (!c) return [];
+  try {
+    const res = await fetch(
+      `${c.supabaseUrl}/rest/v1/scores?mode=eq.${mode2}&order=score.desc&limit=300&select=name,score`,
+      { headers: headers(c) }
+    );
+    if (!res.ok) return [];
+    const rows = await res.json();
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    for (const r of rows) {
+      if (seen.has(r.name)) continue;
+      seen.add(r.name);
+      out.push({ name: r.name, score: r.score });
+      if (out.length >= 50) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+// sound.ts
+var ctx = null;
+function getCtx() {
+  try {
+    if (!ctx) {
+      const AC = window.AudioContext ?? window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+    }
+    if (ctx.state === "suspended") void ctx.resume();
+    return ctx;
+  } catch {
+    return null;
+  }
+}
+function tone(freq, duration, type = "sine", volume = 0.2, freqEnd, delay = 0) {
+  const ac = getCtx();
+  if (!ac) return;
+  const t0 = ac.currentTime + delay;
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  if (freqEnd != null) {
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), t0 + duration);
+  }
+  gain.gain.setValueAtTime(volume, t0);
+  gain.gain.exponentialRampToValueAtTime(1e-4, t0 + duration);
+  osc.connect(gain).connect(ac.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+var sounds = {
+  // 점프: 짧고 가벼운 상승음
+  flap() {
+    tone(420, 0.1, "triangle", 0.15, 700);
+  },
+  // 점수: 맑은 딩
+  score() {
+    tone(880, 0.09, "sine", 0.18);
+    tone(1318, 0.12, "sine", 0.15, void 0, 0.07);
+  },
+  // 충돌: 둔탁한 하강음
+  hit() {
+    tone(220, 0.25, "sawtooth", 0.22, 60);
+  },
+  // 신기록: 짧은 팡파레
+  best() {
+    tone(659, 0.1, "triangle", 0.16, void 0, 0);
+    tone(784, 0.1, "triangle", 0.16, void 0, 0.09);
+    tone(1047, 0.22, "triangle", 0.18, void 0, 0.18);
+  },
+  // 포탈 통과: 짧은 워프음 (상승 후 하강)
+  portal() {
+    tone(523, 0.08, "square", 0.1, 1046);
+    tone(784, 0.16, "triangle", 0.12, 392, 0.06);
+  },
+  // 스테이지 업: 밝게 상승하는 아르페지오
+  stage() {
+    tone(523, 0.12, "triangle", 0.16, void 0, 0);
+    tone(659, 0.12, "triangle", 0.16, void 0, 0.08);
+    tone(784, 0.12, "triangle", 0.16, void 0, 0.16);
+    tone(1047, 0.26, "triangle", 0.18, void 0, 0.24);
+  },
+  unlock() {
+    getCtx();
+  }
+};
+
+// music.ts
+var actx = null;
+var master = null;
+var muted = false;
+try {
+  muted = localStorage.getItem("ait-muted") === "1";
+} catch {
+}
+var VOL = 0.42;
+var running = false;
+var curStage = 1;
+var loopPos = 0;
+var nextStepTime = 0;
+var introUntil = 0;
+var timer = null;
+var sources = [];
+function getCtx2() {
+  try {
+    if (!actx) {
+      const AC = window.AudioContext ?? window.webkitAudioContext;
+      if (!AC) return null;
+      actx = new AC();
+      master = actx.createGain();
+      master.gain.value = 0;
+      master.connect(actx.destination);
+    }
+    if (actx.state === "suspended") void actx.resume();
+    return actx;
+  } catch {
+    return null;
+  }
+}
+function unlock() {
+  getCtx2();
+}
+function isMuted() {
+  return muted;
+}
+function setMuted(m) {
+  muted = m;
+  try {
+    localStorage.setItem("ait-muted", m ? "1" : "0");
+  } catch {
+  }
+  if (actx && master) {
+    const target = m ? 0 : running ? VOL : 0;
+    master.gain.setTargetAtTime(target, actx.currentTime, 0.02);
+  }
+}
+var SEMI = {
+  C: 0,
+  "C#": 1,
+  Db: 1,
+  D: 2,
+  "D#": 3,
+  Eb: 3,
+  E: 4,
+  F: 5,
+  "F#": 6,
+  Gb: 6,
+  G: 7,
+  "G#": 8,
+  Ab: 8,
+  A: 9,
+  "A#": 10,
+  Bb: 10,
+  B: 11
+};
+function nf(name) {
+  const m = /^([A-G][#b]?)(\d)$/.exec(name);
+  if (!m) return 0;
+  const semi = SEMI[m[1]];
+  const midi = (parseInt(m[2], 10) + 1) * 12 + semi;
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+function parse(s) {
+  return s.trim().split(/\s+/).map((t) => t === "." ? 0 : nf(t));
+}
+var TRACKS = [
+  // 1 아침
+  {
+    bpm: 100,
+    wave: "triangle",
+    drums: false,
+    mel: parse("C5 . E5 . G5 . E5 . A4 . C5 . E5 . D5 ."),
+    bass: parse("C3 . . . G2 . . . A2 . . . F2 . . .")
+  },
+  // 2 노을
+  {
+    bpm: 92,
+    wave: "triangle",
+    drums: false,
+    mel: parse("F4 A4 C5 A4 F4 G4 A4 C5 D5 C5 A4 G4 F4 A4 G4 ."),
+    bass: parse("F2 . . . C3 . . . D3 . . . C3 . . .")
+  },
+  // 3 밤하늘
+  {
+    bpm: 88,
+    wave: "sine",
+    drums: false,
+    mel: parse("A4 . C5 . E5 . D5 . C5 . B4 . A4 . E4 ."),
+    bass: parse("A2 . . . F2 . . . G2 . . . E2 . . .")
+  },
+  // 4 우주
+  {
+    bpm: 80,
+    wave: "sine",
+    drums: false,
+    mel: parse("E5 . . B4 . . D5 . . A4 . . E4 . . ."),
+    bass: parse("E2 . . . . . . . C2 . . . . . . .")
+  },
+  // 5 오로라
+  {
+    bpm: 96,
+    wave: "triangle",
+    drums: false,
+    mel: parse("D5 E5 F5 A5 G5 F5 E5 D5 C5 D5 E5 F5 E5 D5 . ."),
+    bass: parse("D3 . . . A2 . . . Bb2 . . . A2 . . .")
+  },
+  // 6 지옥 — 드라이빙
+  {
+    bpm: 140,
+    wave: "sawtooth",
+    drums: true,
+    mel: parse("D5 . D5 D5 . D5 . A4 . Bb4 . A4 . G4 . F4"),
+    bass: parse("D2 D2 D2 D2 D2 D2 D2 D2 Bb1 Bb1 Bb1 Bb1 A1 A1 A1 A1")
+  }
+];
+function track() {
+  return TRACKS[Math.min(curStage, TRACKS.length) - 1];
+}
+function voice(freq, t0, dur, type, vol) {
+  if (!actx || !master || freq <= 0) return;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(1e-4, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(1e-4, t0 + dur);
+  o.connect(g).connect(master);
+  o.start(t0);
+  o.stop(t0 + dur + 0.03);
+  sources.push(o);
+}
+function kick(t0) {
+  if (!actx || !master) return;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(150, t0);
+  o.frequency.exponentialRampToValueAtTime(45, t0 + 0.12);
+  g.gain.setValueAtTime(0.55, t0);
+  g.gain.exponentialRampToValueAtTime(1e-4, t0 + 0.17);
+  o.connect(g).connect(master);
+  o.start(t0);
+  o.stop(t0 + 0.19);
+  sources.push(o);
+}
+function playStep(pos, t) {
+  if (t < introUntil) return;
+  const tr = track();
+  voice(tr.mel[pos], t, 30 / tr.bpm * 1.6, tr.wave, tr.drums ? 0.12 : 0.16);
+  voice(tr.bass[pos], t, 30 / tr.bpm * 1.5, tr.drums ? "sawtooth" : "triangle", 0.17);
+  if (tr.drums && pos % 2 === 0) kick(t);
+}
+function scheduler() {
+  if (!running || !actx) return;
+  const secPerStep = 30 / track().bpm;
+  while (nextStepTime < actx.currentTime + 0.12) {
+    playStep(loopPos, nextStepTime);
+    nextStepTime += secPerStep;
+    loopPos = (loopPos + 1) % 16;
+  }
+  timer = setTimeout(scheduler, 25);
+}
+function playHellIntro() {
+  if (!actx) return;
+  const t0 = actx.currentTime + 0.06;
+  const seq = [
+    // [음, 시작(초), 길이, 볼륨]  — 디~로리
+    ["A5", 0, 0.16, 0.24],
+    ["G5", 0.16, 0.09, 0.22],
+    ["A5", 0.25, 0.55, 0.24],
+    // 하강 런
+    ["G5", 0.98, 0.12, 0.2],
+    ["F5", 1.1, 0.12, 0.2],
+    ["E5", 1.22, 0.12, 0.2],
+    ["D5", 1.34, 0.12, 0.2],
+    ["C#5", 1.46, 0.12, 0.2],
+    ["D5", 1.58, 0.42, 0.22],
+    // 큰 코드
+    ["D4", 2.1, 1, 0.16],
+    ["F4", 2.1, 1, 0.16],
+    ["A4", 2.1, 1, 0.16],
+    // 낮은 메아리
+    ["A4", 3.25, 0.16, 0.22],
+    ["G4", 3.41, 0.09, 0.2],
+    ["A4", 3.5, 0.5, 0.22],
+    ["F4", 4.05, 0.12, 0.2],
+    ["E4", 4.17, 0.12, 0.2],
+    ["D4", 4.29, 0.12, 0.2],
+    ["C#4", 4.41, 0.12, 0.2],
+    ["D4", 4.53, 0.5, 0.22],
+    // 최종 저음 코드(여기서 비트 드랍)
+    ["D3", 5, 1.4, 0.18],
+    ["F3", 5, 1.4, 0.18],
+    ["A3", 5, 1.4, 0.18]
+  ];
+  for (const [name, at, dur, vol] of seq) {
+    voice(nf(name), t0 + at, dur, "sawtooth", vol);
+  }
+  introUntil = t0 + 5;
+}
+function start(stageNo) {
+  if (!getCtx2() || !actx || !master) return;
+  curStage = stageNo;
+  loopPos = 0;
+  introUntil = 0;
+  running = true;
+  master.gain.setTargetAtTime(muted ? 0 : VOL, actx.currentTime, 0.03);
+  nextStepTime = actx.currentTime + 0.1;
+  if (timer) clearTimeout(timer);
+  scheduler();
+}
+function setStage(stageNo) {
+  if (curStage === stageNo) return;
+  curStage = stageNo;
+  loopPos = 0;
+  if (stageNo === 6) playHellIntro();
+  else introUntil = 0;
+}
+function stop() {
+  running = false;
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  if (actx && master) master.gain.setTargetAtTime(0, actx.currentTime, 0.04);
+  const now = actx ? actx.currentTime : 0;
+  for (const o of sources) {
+    try {
+      o.stop(now);
+    } catch {
+    }
+  }
+  sources = [];
+}
+
+// main.ts
+var canvas = document.getElementById("game");
+var ctx2 = canvas.getContext("2d");
+var W = 0;
+var H = 0;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+var COLOR = {
+  skyTop: "#E8F3FF",
+  skyBottom: "#FFFFFF",
+  bird: "#3182F6",
+  birdWing: "#FFFFFF",
+  birdBeak: "#FFB331",
+  pipe: "#4E5968",
+  pipeCap: "#6B7684",
+  ground: "#F2F4F6",
+  groundLine: "#E5E8EB",
+  text: "#191F28",
+  subText: "#8B95A1",
+  card: "#FFFFFF",
+  button: "#3182F6",
+  buttonText: "#FFFFFF",
+  cloud: "rgba(255, 255, 255, 0.9)",
+  newBest: "#F04452"
+};
+var STAGE_THEMES = [
+  { name: "\uC544\uCE68 \uD558\uB298", skyTop: "#E8F3FF", skyBottom: "#FFFFFF", ground: "#F2F4F6", groundLine: "#E5E8EB", cloud: "rgba(255,255,255,0.9)", fg: "#191F28", stars: false },
+  { name: "\uB178\uC744", skyTop: "#FFD9A8", skyBottom: "#FFF1E6", ground: "#F6E9DC", groundLine: "#EAD3BC", cloud: "rgba(255,255,255,0.85)", fg: "#5A3B25", stars: false },
+  { name: "\uBC24\uD558\uB298", skyTop: "#243056", skyBottom: "#4A6491", ground: "#2A3550", groundLine: "#3B496B", cloud: "rgba(255,255,255,0.45)", fg: "#FFFFFF", stars: true },
+  { name: "\uC6B0\uC8FC", skyTop: "#160F2B", skyBottom: "#392A66", ground: "#1E1736", groundLine: "#322A55", cloud: "rgba(255,255,255,0.32)", fg: "#FFFFFF", stars: true },
+  { name: "\uC624\uB85C\uB77C", skyTop: "#0C3B39", skyBottom: "#1E7A6A", ground: "#103634", groundLine: "#1F524C", cloud: "rgba(200,255,240,0.5)", fg: "#EAFFF8", stars: true },
+  { name: "\uC9C0\uC625", skyTop: "#3A0A0A", skyBottom: "#8A1C12", ground: "#280707", groundLine: "#4A140F", cloud: "rgba(255,170,110,0.22)", fg: "#FFFFFF", stars: true }
+];
+var GRAVITY = 1900;
+var FLAP_VELOCITY = -560;
+var BIRD_X_RATIO = 0.28;
+var BIRD_RADIUS = 17;
+var PIPE_WIDTH = 64;
+var GROUND_HEIGHT = 96;
+var BASE_SPEED = 170;
+var SPEED_PER_SCORE = 3.2;
+var MAX_SPEED = 320;
+var BASE_GAP = 185;
+var GAP_PER_SCORE = 1.4;
+var MIN_GAP = 128;
+var PIPE_SPACING = 250;
+var SPACING_COMP = 0.8;
+var TERMINAL_VEL = 620;
+var SHIP_ACCEL = 2400;
+var PORTAL_WIDTH = 50;
+var MINI_SCALE = 0.56;
+var SPEED_SLOW = 0.58;
+var SPEED_UP_STEPS = [1.32, 1.66, 2.05];
+var SPEED_MAX_LV = 3;
+var SPEED_MIN_LV = -1;
+var PORTAL_MIN_DIST = 460;
+var PORTAL_RAND_DIST = 340;
+var MAX_LIVES = 3;
+var INVINC_TIME = 1.4;
+var PORTAL_WARN_TIME = 1;
+var HEART_MAX = 5;
+var STAGE_PIPES = 15;
+var MAX_STAGE = 6;
+var STAGE_BANNER_TIME = 1.6;
+var COMBO_STEP = 5;
+var MAX_MULT = 5;
+var PORTAL_STYLE = {
+  "grav-on": { c: "#8B5CF6", glyph: "\u21C5", label: "\uC911\uB825\uBC18\uC804" },
+  "grav-off": { c: "#8B5CF6", glyph: "\u2193", label: "\uC911\uB825\uBCF5\uAD6C" },
+  mirror: { c: "#F04452", glyph: "\u21C4", label: "\uC88C\uC6B0\uBC18\uC804" },
+  "mini-on": { c: "#00C2A8", glyph: "\u25BD", label: "\uBBF8\uB2C8" },
+  "mini-off": { c: "#00C2A8", glyph: "\u25B3", label: "\uC6D0\uB798\uD06C\uAE30" },
+  "speed-up": { c: "#FF8A00", glyph: "\xBB", label: "\uAC00\uC18D" },
+  "speed-2": { c: "#FB6514", glyph: "\xBB", label: "2\uB2E8\uAC00\uC18D" },
+  "speed-3": { c: "#F04452", glyph: "\xBB", label: "3\uB2E8\uAC00\uC18D" },
+  "speed-normal": { c: "#8B95A1", glyph: "=", label: "\uC815\uC0C1\uC18D\uB3C4" },
+  "speed-down": { c: "#1B64DA", glyph: "\xAB", label: "\uAC10\uC18D" }
+};
+var state = "ready";
+var birdY = 0;
+var birdVel = 0;
+var pipes = [];
+var portals = [];
+var clouds = [];
+var score = 0;
+var pipesPassed = 0;
+var combo = 0;
+var comboPop = 0;
+var best = { bird: 0, boat: 0 };
+var isNewBest = false;
+var gameOverAt = 0;
+var lastTime = 0;
+var wingPhase = 0;
+var lives = MAX_LIVES;
+var invinc = 0;
+var shake = 0;
+var flash = 0;
+var scorePop = 0;
+var particles = [];
+var pendingPortal = null;
+var gravQueued = null;
+var stage = 1;
+var stageBanner = 0;
+var stageFlash = 0;
+var healPulse = 0;
+var stars = [];
+var mode = "bird";
+var pointerHeld = false;
+var boardOpen = false;
+var boardMode = "bird";
+var boardRows = null;
+var mods = { gravFlip: false, dir: 1, mini: false, speedLv: 0 };
+var pipeAccum = 0;
+var portalAccum = 0;
+var nextPortalDist = PORTAL_MIN_DIST;
+void loadBest("bird").then((v) => {
+  best.bird = v;
+});
+void loadBest("boat").then((v) => {
+  best.boat = v;
+});
+function playH() {
+  return H - GROUND_HEIGHT;
+}
+function currentSpeed() {
+  return Math.min(MAX_SPEED, BASE_SPEED + pipesPassed * SPEED_PER_SCORE);
+}
+function currentGap() {
+  return Math.max(MIN_GAP, BASE_GAP - pipesPassed * GAP_PER_SCORE);
+}
+function comboMult() {
+  return Math.min(MAX_MULT, 1 + Math.floor(combo / COMBO_STEP));
+}
+function gravity() {
+  return GRAVITY * (mods.gravFlip ? -1 : 1);
+}
+function flapVel() {
+  return FLAP_VELOCITY * (mods.gravFlip ? -1 : 1);
+}
+function birdRadius() {
+  return BIRD_RADIUS * (mods.mini ? MINI_SCALE : 1);
+}
+function speedMult() {
+  if (mods.speedLv < 0) return SPEED_SLOW;
+  if (mods.speedLv === 0) return 1;
+  return SPEED_UP_STEPS[mods.speedLv - 1];
+}
+function pipeSpacing() {
+  const ratio = currentSpeed() * speedMult() / BASE_SPEED;
+  return PIPE_SPACING * (1 + Math.max(0, ratio - 1) * SPACING_COMP);
+}
+function birdScreenX() {
+  return mods.dir > 0 ? W * BIRD_X_RATIO : W * (1 - BIRD_X_RATIO);
+}
+function spawnEdgeX(objW) {
+  return mods.dir > 0 ? W + 24 : -objW - 24;
+}
+function initClouds() {
+  clouds = [];
+  for (let i = 0; i < 5; i++) {
+    clouds.push({
+      x: Math.random() * W,
+      y: 40 + Math.random() * (playH() * 0.4),
+      scale: 0.6 + Math.random() * 0.8,
+      speed: 8 + Math.random() * 14
+    });
+  }
+}
+initClouds();
+function initStars() {
+  stars = [];
+  for (let i = 0; i < 46; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * playH() * 0.85,
+      r: 0.6 + Math.random() * 1.6,
+      p: Math.random() * Math.PI * 2
+    });
+  }
+}
+initStars();
+function theme() {
+  return STAGE_THEMES[Math.min(stage, MAX_STAGE) - 1];
+}
+function stageGimmicks(st) {
+  return {
+    mini: st >= 2,
+    mirror: st >= 3,
+    grav: st >= 4,
+    speed: st >= 5
+  };
+}
+function stageIntro(st) {
+  switch (st) {
+    case 2:
+      return "\uBBF8\uB2C8 \uB4F1\uC7A5!";
+    case 3:
+      return "\uC88C\uC6B0\uBC18\uC804 \uB4F1\uC7A5!";
+    case 4:
+      return "\uC911\uB825\uBC18\uC804 \uB4F1\uC7A5!";
+    case 5:
+      return "\uAC00\uC18D \uB4F1\uC7A5!";
+    case 6:
+      return "\uC9C0\uC625 \xB7 \uB79C\uB364 \uC870\uD569!";
+    default:
+      return null;
+  }
+}
+function reset() {
+  state = "ready";
+  stop();
+  birdY = playH() * 0.45;
+  birdVel = 0;
+  pipes = [];
+  portals = [];
+  score = 0;
+  pipesPassed = 0;
+  combo = 0;
+  comboPop = 0;
+  isNewBest = false;
+  mods = { gravFlip: false, dir: 1, mini: false, speedLv: 0 };
+  pipeAccum = 0;
+  portalAccum = 0;
+  nextPortalDist = PORTAL_MIN_DIST + Math.random() * PORTAL_RAND_DIST;
+  lives = MAX_LIVES;
+  invinc = 0;
+  shake = 0;
+  flash = 0;
+  scorePop = 0;
+  particles = [];
+  pendingPortal = null;
+  gravQueued = null;
+  pointerHeld = false;
+  stage = 1;
+  stageBanner = 0;
+  stageFlash = 0;
+  healPulse = 0;
+}
+reset();
+function spawnPipe() {
+  const gap = currentGap();
+  const margin = 70;
+  const minY = margin + gap / 2;
+  const maxY = playH() - margin - gap / 2;
+  pipes.push({
+    x: spawnEdgeX(PIPE_WIDTH),
+    gapY: minY + Math.random() * Math.max(1, maxY - minY),
+    gap,
+    passed: false
+  });
+}
+function hazardMult() {
+  let h = 1;
+  if (mods.gravFlip) h += 0.5;
+  if (mods.dir < 0) h += 0.5;
+  if (mods.mini) h += 0.3;
+  if (mods.speedLv > 0) h += mods.speedLv * 0.3;
+  return h;
+}
+function pickPortalKind() {
+  const g = stageGimmicks(stage);
+  const candidates = [];
+  if (g.grav) candidates.push(mods.gravFlip ? "grav-off" : "grav-on");
+  if (g.mirror) candidates.push("mirror");
+  if (g.mini) candidates.push(mods.mini ? "mini-off" : "mini-on");
+  if (g.speed) {
+    const speedPool = [];
+    if (mods.speedLv < SPEED_MAX_LV) speedPool.push("speed-up");
+    if (mods.speedLv > SPEED_MIN_LV) speedPool.push("speed-down");
+    if (mods.speedLv !== 2) speedPool.push("speed-2");
+    if (mods.speedLv !== 3) speedPool.push("speed-3");
+    if (mods.speedLv !== 0) speedPool.push("speed-normal");
+    candidates.push(speedPool[Math.floor(Math.random() * speedPool.length)]);
+  }
+  if (candidates.length === 0) candidates.push("mini-on");
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+function spawnPortalKind(kind) {
+  let lead = null;
+  for (const p of pipes) {
+    if (lead === null || p.x * mods.dir > lead.x * mods.dir) lead = p;
+  }
+  const edge = spawnEdgeX(PORTAL_WIDTH);
+  const sp = pipeSpacing();
+  let px = lead ? lead.x + mods.dir * (sp / 2) : edge;
+  let guard = 0;
+  while (guard++ < 8 && px * mods.dir < edge * mods.dir) {
+    px += mods.dir * sp;
+  }
+  portals.push({ x: px, kind, applied: false });
+}
+function burst(x, y, color, count, power) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = power * (0.4 + Math.random() * 0.8);
+    const life = 0.3 + Math.random() * 0.4;
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life,
+      max: life,
+      color,
+      size: 2 + Math.random() * 3
+    });
+  }
+}
+function loseLife() {
+  lives--;
+  combo = 0;
+  invinc = INVINC_TIME;
+  shake = 12;
+  flash = 1;
+  burst(birdScreenX(), birdY, "#F04452", 18, 320);
+  if (lives <= 0) {
+    gameOver();
+    return true;
+  }
+  sounds.hit();
+  haptic("error");
+  return false;
+}
+function enterStage(n) {
+  stage = n;
+  if (lives < HEART_MAX) lives = Math.min(HEART_MAX, lives + 1);
+  healPulse = 1;
+  stageBanner = STAGE_BANNER_TIME;
+  stageFlash = 1;
+  burst(birdScreenX(), birdY, "#34C759", 18, 280);
+  setStage(n);
+  sounds.stage();
+  haptic("success");
+}
+function flipDirection(target) {
+  if (mods.dir === target) return;
+  mods.dir = target;
+  for (const p of pipes) p.x = W - p.x - PIPE_WIDTH;
+  for (const pt of portals) pt.x = W - pt.x - PORTAL_WIDTH;
+}
+function applyPortal(kind) {
+  switch (kind) {
+    case "grav-on":
+      mods.gravFlip = true;
+      break;
+    case "grav-off":
+      mods.gravFlip = false;
+      break;
+    case "mirror":
+      flipDirection(mods.dir > 0 ? -1 : 1);
+      break;
+    case "mini-on":
+      mods.mini = true;
+      break;
+    case "mini-off":
+      mods.mini = false;
+      break;
+    case "speed-up":
+      mods.speedLv = Math.min(SPEED_MAX_LV, mods.speedLv + 1);
+      break;
+    case "speed-2":
+      mods.speedLv = 2;
+      break;
+    case "speed-3":
+      mods.speedLv = 3;
+      break;
+    case "speed-normal":
+      mods.speedLv = 0;
+      break;
+    case "speed-down":
+      mods.speedLv = Math.max(SPEED_MIN_LV, mods.speedLv - 1);
+      break;
+  }
+  sounds.portal();
+  haptic("wiggle");
+  burst(birdScreenX(), birdY, PORTAL_STYLE[kind].c, 14, 240);
+  shake = Math.max(shake, 6);
+}
+function start2() {
+  state = "playing";
+  birdVel = mode === "boat" ? 0 : flapVel();
+  pipeAccum = 0;
+  spawnPipe();
+  start(stage);
+  sounds.flap();
+  haptic("tickWeak");
+}
+function modeButtons() {
+  const bw = Math.min(150, (W - 56) / 2);
+  const bh = 156;
+  const gap = 18;
+  const x0 = (W - (bw * 2 + gap)) / 2;
+  const y = playH() * 0.4;
+  return {
+    bird: { x: x0, y, w: bw, h: bh },
+    boat: { x: x0 + bw + gap, y, w: bw, h: bh }
+  };
+}
+function inRect(px, py, r) {
+  return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+}
+function gameOverLayout() {
+  const cardW = Math.min(320, W - 48);
+  const cardH = 304;
+  const cx = (W - cardW) / 2;
+  const cy = H * 0.3 - cardH / 2;
+  const btnW = cardW - 48;
+  const btnH = 50;
+  const bx = (W - btnW) / 2;
+  const rankY = cy + cardH - btnH - 22;
+  const retryY = rankY - btnH - 12;
+  return {
+    card: { x: cx, y: cy, w: cardW, h: cardH },
+    retry: { x: bx, y: retryY, w: btnW, h: btnH },
+    rank: { x: bx, y: rankY, w: btnW, h: btnH }
+  };
+}
+function readyRankButton() {
+  const b = modeButtons();
+  const w = 160;
+  const h = 42;
+  return { x: (W - w) / 2, y: b.bird.y + b.bird.h + 54, w, h };
+}
+function muteButton() {
+  return { x: W - 46, y: 16, w: 32, h: 32 };
+}
+function boardLayout() {
+  const pw = Math.min(360, W - 28);
+  const ph = Math.min(548, H - 100);
+  const px = (W - pw) / 2;
+  const py = (H - ph) / 2;
+  const tabW = (pw - 48) / 2;
+  const tabY = py + 58;
+  return {
+    panel: { x: px, y: py, w: pw, h: ph },
+    tabBird: { x: px + 24, y: tabY, w: tabW, h: 36 },
+    tabBoat: { x: px + 24 + tabW, y: tabY, w: tabW, h: 36 },
+    close: { x: px + pw - 46, y: py + 12, w: 34, h: 34 }
+  };
+}
+function loadBoard() {
+  boardRows = null;
+  const m = boardMode;
+  void fetchBoard(m).then((rows) => {
+    if (boardMode === m) boardRows = rows;
+  });
+}
+function openBoard(m) {
+  if (isOnline() && !getNick()) {
+    for (let tries = 0; tries < 5; tries++) {
+      const raw = window.prompt("\uB9AC\uB354\uBCF4\uB4DC\uC5D0 \uD45C\uC2DC\uD560 \uB2C9\uB124\uC784 (2~10\uC790)") ?? "";
+      if (!raw.trim()) break;
+      const err = nickError(raw);
+      if (err) {
+        window.alert(err);
+        continue;
+      }
+      const n = raw.trim().slice(0, 10);
+      setNick(n);
+      if (best.bird > 0) void submitScore("bird", n, best.bird);
+      if (best.boat > 0) void submitScore("boat", n, best.boat);
+      break;
+    }
+  }
+  boardOpen = true;
+  boardMode = m;
+  loadBoard();
+}
+function flap() {
+  birdVel = flapVel();
+  wingPhase = 0;
+  sounds.flap();
+  haptic("tickWeak");
+}
+function gameOver() {
+  state = "gameover";
+  gameOverAt = performance.now();
+  stop();
+  sounds.hit();
+  if (score > best[mode]) {
+    best[mode] = score;
+    isNewBest = true;
+    saveBest(mode, score);
+    haptic("success");
+    setTimeout(() => sounds.best(), 350);
+    const nick = getNick();
+    if (nick) void submitScore(mode, nick, score);
+  } else {
+    haptic("error");
+  }
+}
+function onPointerDown(px, py) {
+  sounds.unlock();
+  unlock();
+  if (inRect(px, py, muteButton())) {
+    setMuted(!isMuted());
+    return;
+  }
+  if (boardOpen) {
+    const bl = boardLayout();
+    if (inRect(px, py, bl.tabBird)) {
+      boardMode = "bird";
+      loadBoard();
+    } else if (inRect(px, py, bl.tabBoat)) {
+      boardMode = "boat";
+      loadBoard();
+    } else if (inRect(px, py, bl.close) || !inRect(px, py, bl.panel)) {
+      boardOpen = false;
+    }
+    return;
+  }
+  pointerHeld = true;
+  if (state === "ready") {
+    if (inRect(px, py, readyRankButton())) {
+      openBoard(mode);
+      return;
+    }
+    const b = modeButtons();
+    if (inRect(px, py, b.bird)) {
+      mode = "bird";
+      start2();
+    } else if (inRect(px, py, b.boat)) {
+      mode = "boat";
+      start2();
+    }
+  } else if (state === "playing") {
+    if (mode === "bird") flap();
+  } else if (state === "gameover") {
+    if (performance.now() - gameOverAt <= 600) return;
+    if (inRect(px, py, gameOverLayout().rank)) {
+      openBoard(mode);
+      return;
+    }
+    reset();
+  }
+}
+function onPointerUp() {
+  pointerHeld = false;
+}
+canvas.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  onPointerDown(e.clientX, e.clientY);
+});
+canvas.addEventListener("pointerup", (e) => {
+  e.preventDefault();
+  onPointerUp();
+});
+canvas.addEventListener("pointercancel", () => onPointerUp());
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space" || e.code === "ArrowUp") {
+    e.preventDefault();
+    if (e.repeat) return;
+    if (state === "ready") {
+      const b = modeButtons();
+      onPointerDown(b.bird.x + 1, b.bird.y + 1);
+    } else {
+      onPointerDown(W / 2, H / 2);
+    }
+  }
+});
+window.addEventListener("keyup", (e) => {
+  if (e.code === "Space" || e.code === "ArrowUp") onPointerUp();
+});
+function update(dt) {
+  for (const c of clouds) {
+    c.x -= c.speed * dt;
+    if (c.x < -120) {
+      c.x = W + 120;
+      c.y = 40 + Math.random() * (playH() * 0.4);
+    }
+  }
+  wingPhase += dt * 14;
+  if (state !== "playing") {
+    if (state === "ready") {
+      birdY = playH() * 0.45 + Math.sin(performance.now() / 350) * 8;
+    }
+    return;
+  }
+  if (mode === "boat") {
+    const a = (pointerHeld ? -SHIP_ACCEL : SHIP_ACCEL) * (mods.gravFlip ? -1 : 1);
+    birdVel += a * dt;
+  } else {
+    birdVel += gravity() * dt;
+  }
+  if (birdVel > TERMINAL_VEL) birdVel = TERMINAL_VEL;
+  else if (birdVel < -TERMINAL_VEL) birdVel = -TERMINAL_VEL;
+  birdY += birdVel * dt;
+  const worldSpeed = currentSpeed() * speedMult();
+  const moveX = worldSpeed * dt * mods.dir;
+  const birdX = birdScreenX();
+  const r = birdRadius();
+  for (const p of pipes) {
+    p.x -= moveX;
+    if (!p.passed) {
+      const cleared = mods.dir > 0 ? p.x + PIPE_WIDTH < birdX - r : p.x > birdX + r;
+      if (cleared) {
+        p.passed = true;
+        pipesPassed++;
+        combo++;
+        score += Math.max(1, Math.round(comboMult() * hazardMult()));
+        scorePop = 1;
+        comboPop = 1;
+        sounds.score();
+        haptic("tickMedium");
+      }
+    }
+  }
+  const wantStage = Math.min(MAX_STAGE, Math.floor(pipesPassed / STAGE_PIPES) + 1);
+  if (wantStage > stage) enterStage(wantStage);
+  for (const pt of portals) {
+    pt.x -= moveX;
+  }
+  let bx = birdScreenX();
+  for (const pt of portals) {
+    if (!pt.applied && bx > pt.x && bx < pt.x + PORTAL_WIDTH) {
+      pt.applied = true;
+      applyPortal(pt.kind);
+      bx = birdScreenX();
+    }
+  }
+  pipes = pipes.filter((p) => p.x > -PIPE_WIDTH - 80 && p.x < W + PIPE_WIDTH + 80);
+  const portalOff = PIPE_SPACING * 4 + PORTAL_WIDTH + 80;
+  portals = portals.filter((p) => p.x > -portalOff && p.x < W + portalOff);
+  pipeAccum += worldSpeed * dt;
+  const curSpacing = pipeSpacing();
+  if (pipeAccum >= curSpacing) {
+    pipeAccum -= curSpacing;
+    if (gravQueued) {
+      portals.push({ x: spawnEdgeX(PORTAL_WIDTH), kind: gravQueued, applied: false });
+      gravQueued = null;
+    } else {
+      spawnPipe();
+    }
+  }
+  if (stage >= 2 && !pendingPortal && !gravQueued) {
+    portalAccum += worldSpeed * dt;
+    if (portalAccum >= nextPortalDist) {
+      portalAccum = 0;
+      const intensity = stage >= 6 ? 0.6 : 1;
+      nextPortalDist = (PORTAL_MIN_DIST + Math.random() * PORTAL_RAND_DIST) * intensity;
+      pendingPortal = { kind: pickPortalKind(), timer: PORTAL_WARN_TIME };
+    }
+  }
+  if (pendingPortal) {
+    pendingPortal.timer -= dt;
+    if (pendingPortal.timer <= 0) {
+      const k = pendingPortal.kind;
+      if (k === "grav-on" || k === "grav-off") {
+        gravQueued = k;
+      } else {
+        spawnPortalKind(k);
+      }
+      pendingPortal = null;
+    }
+  }
+  if (invinc > 0) invinc = Math.max(0, invinc - dt);
+  if (shake > 0) shake = Math.max(0, shake - dt * 22);
+  if (flash > 0) flash = Math.max(0, flash - dt * 3);
+  if (scorePop > 0) scorePop = Math.max(0, scorePop - dt * 4);
+  if (stageBanner > 0) stageBanner = Math.max(0, stageBanner - dt);
+  if (stageFlash > 0) stageFlash = Math.max(0, stageFlash - dt * 1.6);
+  if (healPulse > 0) healPulse = Math.max(0, healPulse - dt * 1.3);
+  if (comboPop > 0) comboPop = Math.max(0, comboPop - dt * 4);
+  for (const pa of particles) {
+    pa.x -= moveX * 0.6;
+    pa.x += pa.vx * dt;
+    pa.y += pa.vy * dt;
+    pa.vy += 600 * dt;
+    pa.life -= dt;
+  }
+  particles = particles.filter((pa) => pa.life > 0);
+  const cx = birdScreenX();
+  const cr = birdRadius();
+  if (birdY + cr >= playH()) {
+    birdY = playH() - cr;
+    if (invinc <= 0 && loseLife()) return;
+    birdVel = -Math.abs(FLAP_VELOCITY) * 0.85;
+  }
+  if (birdY - cr <= 0) {
+    birdY = cr;
+    if (birdVel < 0) birdVel = 0;
+  }
+  if (invinc <= 0) {
+    for (const p of pipes) {
+      if (cx + cr > p.x && cx - cr < p.x + PIPE_WIDTH) {
+        const top = p.gapY - p.gap / 2;
+        const bottom = p.gapY + p.gap / 2;
+        if (birdY - cr < top || birdY + cr > bottom) {
+          loseLife();
+          break;
+        }
+      }
+    }
+  }
+}
+function roundRect(x, y, w, h, r) {
+  const radius = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+  ctx2.beginPath();
+  ctx2.moveTo(x + radius, y);
+  ctx2.arcTo(x + w, y, x + w, y + h, radius);
+  ctx2.arcTo(x + w, y + h, x, y + h, radius);
+  ctx2.arcTo(x, y + h, x, y, radius);
+  ctx2.arcTo(x, y, x + w, y, radius);
+  ctx2.closePath();
+}
+function drawBackground() {
+  const th = theme();
+  const grad = ctx2.createLinearGradient(0, 0, 0, playH());
+  grad.addColorStop(0, th.skyTop);
+  grad.addColorStop(1, th.skyBottom);
+  ctx2.fillStyle = grad;
+  ctx2.fillRect(0, 0, W, playH());
+  if (th.stars) {
+    ctx2.fillStyle = "#FFFFFF";
+    for (const st of stars) {
+      const tw = 0.5 + 0.5 * Math.sin(performance.now() / 600 + st.p);
+      ctx2.globalAlpha = 0.35 + tw * 0.6;
+      ctx2.beginPath();
+      ctx2.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+      ctx2.fill();
+    }
+    ctx2.globalAlpha = 1;
+  }
+  ctx2.fillStyle = th.cloud;
+  for (const c of clouds) {
+    ctx2.save();
+    ctx2.translate(c.x, c.y);
+    ctx2.scale(c.scale, c.scale);
+    ctx2.beginPath();
+    ctx2.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx2.arc(24, -8, 18, 0, Math.PI * 2);
+    ctx2.arc(48, 0, 22, 0, Math.PI * 2);
+    ctx2.arc(24, 8, 20, 0, Math.PI * 2);
+    ctx2.fill();
+    ctx2.restore();
+  }
+  ctx2.fillStyle = th.ground;
+  ctx2.fillRect(0, playH(), W, GROUND_HEIGHT);
+  ctx2.fillStyle = th.groundLine;
+  ctx2.fillRect(0, playH(), W, 3);
+}
+function drawPipes() {
+  for (const p of pipes) {
+    const top = p.gapY - p.gap / 2;
+    const bottom = p.gapY + p.gap / 2;
+    ctx2.fillStyle = COLOR.pipe;
+    roundRect(p.x, -20, PIPE_WIDTH, top + 20, 14);
+    ctx2.fill();
+    roundRect(p.x, bottom, PIPE_WIDTH, playH() - bottom + 20, 14);
+    ctx2.fill();
+    ctx2.fillStyle = COLOR.pipeCap;
+    roundRect(p.x - 4, top - 22, PIPE_WIDTH + 8, 22, 10);
+    ctx2.fill();
+    roundRect(p.x - 4, bottom, PIPE_WIDTH + 8, 22, 10);
+    ctx2.fill();
+  }
+}
+function drawPortals() {
+  const top = 28;
+  const bottom = playH() - 28;
+  const h = bottom - top;
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
+  for (const pt of portals) {
+    const s = PORTAL_STYLE[pt.kind];
+    const cx = pt.x + PORTAL_WIDTH / 2;
+    ctx2.save();
+    ctx2.shadowColor = s.c;
+    ctx2.shadowBlur = 14 + pulse * 12;
+    ctx2.globalAlpha = 0.16;
+    ctx2.fillStyle = s.c;
+    roundRect(pt.x, top, PORTAL_WIDTH, h, PORTAL_WIDTH / 2);
+    ctx2.fill();
+    ctx2.globalAlpha = 1;
+    ctx2.lineWidth = 5;
+    ctx2.strokeStyle = s.c;
+    roundRect(pt.x, top, PORTAL_WIDTH, h, PORTAL_WIDTH / 2);
+    ctx2.stroke();
+    ctx2.restore();
+    const midY = playH() / 2;
+    ctx2.save();
+    ctx2.textAlign = "center";
+    ctx2.textBaseline = "middle";
+    ctx2.fillStyle = "rgba(255, 255, 255, 0.92)";
+    roundRect(cx - PORTAL_WIDTH / 2 + 3, midY - 30, PORTAL_WIDTH - 6, 60, 14);
+    ctx2.fill();
+    ctx2.lineWidth = 2;
+    ctx2.strokeStyle = s.c;
+    roundRect(cx - PORTAL_WIDTH / 2 + 3, midY - 30, PORTAL_WIDTH - 6, 60, 14);
+    ctx2.stroke();
+    ctx2.fillStyle = s.c;
+    ctx2.font = "800 28px Pretendard, -apple-system, sans-serif";
+    ctx2.fillText(s.glyph, cx, midY - 11);
+    ctx2.font = "800 11px Pretendard, -apple-system, sans-serif";
+    ctx2.fillText(s.label, cx, midY + 16);
+    ctx2.restore();
+  }
+  ctx2.textBaseline = "alphabetic";
+}
+function drawBirdShape() {
+  ctx2.fillStyle = COLOR.bird;
+  ctx2.beginPath();
+  ctx2.arc(0, 0, BIRD_RADIUS, 0, Math.PI * 2);
+  ctx2.fill();
+  const wingY = Math.sin(wingPhase) * 4;
+  ctx2.fillStyle = COLOR.birdWing;
+  ctx2.beginPath();
+  ctx2.ellipse(-4, 3 + wingY, 9, 6, -0.3, 0, Math.PI * 2);
+  ctx2.fill();
+  ctx2.fillStyle = COLOR.birdBeak;
+  ctx2.beginPath();
+  ctx2.moveTo(BIRD_RADIUS - 3, -2);
+  ctx2.lineTo(BIRD_RADIUS + 8, 2);
+  ctx2.lineTo(BIRD_RADIUS - 3, 6);
+  ctx2.closePath();
+  ctx2.fill();
+  ctx2.fillStyle = "#FFFFFF";
+  ctx2.beginPath();
+  ctx2.arc(6, -6, 5, 0, Math.PI * 2);
+  ctx2.fill();
+  ctx2.fillStyle = COLOR.text;
+  ctx2.beginPath();
+  ctx2.arc(7.5, -6, 2.5, 0, Math.PI * 2);
+  ctx2.fill();
+}
+function drawBoatShape() {
+  ctx2.strokeStyle = COLOR.text;
+  ctx2.lineWidth = 2;
+  ctx2.beginPath();
+  ctx2.moveTo(-1, -22);
+  ctx2.lineTo(-1, 8);
+  ctx2.stroke();
+  ctx2.fillStyle = COLOR.birdBeak;
+  ctx2.beginPath();
+  ctx2.moveTo(1, -21);
+  ctx2.lineTo(1, -1);
+  ctx2.lineTo(14, -4);
+  ctx2.closePath();
+  ctx2.fill();
+  ctx2.fillStyle = COLOR.bird;
+  ctx2.beginPath();
+  ctx2.moveTo(-17, 2);
+  ctx2.lineTo(17, 2);
+  ctx2.lineTo(11, 14);
+  ctx2.quadraticCurveTo(0, 17, -11, 14);
+  ctx2.closePath();
+  ctx2.fill();
+  ctx2.fillStyle = "#FFFFFF";
+  ctx2.beginPath();
+  roundRect(-15, 3.5, 30, 3, 1.5);
+  ctx2.fill();
+}
+function drawBird() {
+  if (state === "ready") return;
+  const x = birdScreenX();
+  const y = birdY;
+  const r = birdRadius();
+  const scale = r / BIRD_RADIUS;
+  const baseTilt = Math.max(-0.45, Math.min(0.9, birdVel / 700));
+  ctx2.save();
+  if (invinc > 0) {
+    ctx2.globalAlpha = 0.3 + 0.5 * (Math.sin(performance.now() / 55) * 0.5 + 0.5);
+  }
+  ctx2.translate(x, y);
+  ctx2.scale(mods.dir > 0 ? scale : -scale, mods.gravFlip ? -scale : scale);
+  ctx2.rotate(baseTilt);
+  if (mode === "boat") drawBoatShape();
+  else drawBirdShape();
+  ctx2.restore();
+}
+function drawModeCard(r, title, hint, kind, bob) {
+  ctx2.save();
+  ctx2.fillStyle = COLOR.card;
+  ctx2.shadowColor = "rgba(0,0,0,0.10)";
+  ctx2.shadowBlur = 18;
+  ctx2.shadowOffsetY = 6;
+  roundRect(r.x, r.y, r.w, r.h, 20);
+  ctx2.fill();
+  ctx2.restore();
+  ctx2.save();
+  ctx2.translate(r.x + r.w / 2, r.y + r.h * 0.4 + bob);
+  ctx2.scale(1.3, 1.3);
+  if (kind === "boat") drawBoatShape();
+  else drawBirdShape();
+  ctx2.restore();
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = COLOR.text;
+  ctx2.font = "800 19px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(title, r.x + r.w / 2, r.y + r.h - 36);
+  ctx2.fillStyle = COLOR.subText;
+  ctx2.font = "600 13px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(hint, r.x + r.w / 2, r.y + r.h - 15);
+}
+function drawReady() {
+  if (state !== "ready") return;
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = COLOR.text;
+  ctx2.font = "800 30px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText("\uD1B5\uD1B5 \uC810\uD504", W / 2, playH() * 0.26);
+  ctx2.fillStyle = COLOR.subText;
+  ctx2.font = "600 15px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText("\uBAA8\uB4DC\uB97C \uACE8\uB77C \uC2DC\uC791\uD574\uC694", W / 2, playH() * 0.26 + 28);
+  ctx2.fillText("20\uC810\uB9C8\uB2E4 \uC0C8 \uAE30\uBBF9 \uD574\uAE08! 6\uC2A4\uD14C\uC774\uC9C0\uB294 \uC9C0\uC625 \uB79C\uB364 \uC870\uD569", W / 2, playH() * 0.26 + 50);
+  const b = modeButtons();
+  const bob = Math.sin(performance.now() / 350) * 5;
+  drawModeCard(b.bird, "\uD1B5\uD1B5\uC0C8", "\uD0ED\uD574\uC11C \uC810\uD504", "bird", bob);
+  drawModeCard(b.boat, "\uD1B5\uD1B5\uBC30", "\uB204\uB974\uBA74 \uC0C1\uC2B9", "boat", bob);
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = COLOR.subText;
+  ctx2.font = "600 14px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(`\uCD5C\uACE0  \uD1B5\uD1B5\uC0C8 ${best.bird} \xB7 \uD1B5\uD1B5\uBC30 ${best.boat}`, W / 2, b.bird.y + b.bird.h + 28);
+  const rb = readyRankButton();
+  ctx2.fillStyle = "#E8F0FE";
+  roundRect(rb.x, rb.y, rb.w, rb.h, 14);
+  ctx2.fill();
+  ctx2.fillStyle = COLOR.button;
+  ctx2.font = "700 15px Pretendard, -apple-system, sans-serif";
+  ctx2.textBaseline = "middle";
+  ctx2.fillText("\u{1F3C6} \uB7AD\uD0B9 \uBCF4\uAE30", rb.x + rb.w / 2, rb.y + rb.h / 2 + 1);
+  ctx2.textBaseline = "alphabetic";
+}
+function drawActiveBadges() {
+  if (state !== "playing") return;
+  const items = [];
+  const add = (k, label) => {
+    const st = PORTAL_STYLE[k];
+    items.push({ c: st.c, glyph: st.glyph, label: label ?? st.label });
+  };
+  if (mods.gravFlip) add("grav-on");
+  if (mods.dir < 0) add("mirror");
+  if (mods.mini) add("mini-on");
+  if (mods.speedLv > 0) {
+    add(mods.speedLv === 1 ? "speed-up" : mods.speedLv === 2 ? "speed-2" : "speed-3");
+  } else if (mods.speedLv < 0) add("speed-down");
+  if (items.length === 0) return;
+  const bw = 92;
+  const bh = 26;
+  const gap = 8;
+  let by = 56;
+  const bx = W - bw - 14;
+  ctx2.textAlign = "center";
+  ctx2.textBaseline = "middle";
+  for (const it of items) {
+    ctx2.save();
+    ctx2.globalAlpha = 0.92;
+    ctx2.fillStyle = it.c;
+    roundRect(bx, by, bw, bh, 13);
+    ctx2.fill();
+    ctx2.globalAlpha = 1;
+    ctx2.fillStyle = "#FFFFFF";
+    ctx2.font = "700 13px Pretendard, -apple-system, sans-serif";
+    ctx2.fillText(`${it.glyph} ${it.label}`, bx + bw / 2, by + bh / 2 + 1);
+    ctx2.restore();
+    by += bh + gap;
+  }
+  ctx2.textBaseline = "alphabetic";
+}
+function drawScore() {
+  if (state !== "playing") return;
+  const th = theme();
+  ctx2.textAlign = "center";
+  const topY = playH() * 0.16;
+  const popScale = 1 + scorePop * 0.35;
+  ctx2.save();
+  ctx2.translate(W / 2, topY);
+  ctx2.scale(popScale, popScale);
+  ctx2.fillStyle = th.fg;
+  ctx2.font = "800 56px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(String(score), 0, 0);
+  ctx2.restore();
+  let y = topY + 30;
+  const perPipe = Math.max(1, Math.round(comboMult() * hazardMult()));
+  if (perPipe > 1) {
+    const cp = 1 + comboPop * 0.45;
+    ctx2.save();
+    ctx2.translate(W / 2, y);
+    ctx2.scale(cp, cp);
+    ctx2.fillStyle = "#FF8A00";
+    ctx2.font = "800 18px Pretendard, -apple-system, sans-serif";
+    const tag = combo >= COMBO_STEP ? `\u{1F525}${combo}  ` : "";
+    ctx2.fillText(`${tag}+${perPipe}\uC810 / \uAE30\uB465`, 0, 0);
+    ctx2.restore();
+    y += 26;
+  }
+  ctx2.fillStyle = th.fg;
+  ctx2.globalAlpha = 0.72;
+  ctx2.font = "700 13px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(`STAGE ${stage} \xB7 ${th.name}`, W / 2, y);
+  ctx2.globalAlpha = 1;
+}
+function drawGameOver() {
+  if (state !== "gameover") return;
+  ctx2.fillStyle = "rgba(25, 31, 40, 0.4)";
+  ctx2.fillRect(0, 0, W, H);
+  const L = gameOverLayout();
+  const c = L.card;
+  ctx2.save();
+  ctx2.shadowColor = "rgba(0,0,0,0.15)";
+  ctx2.shadowBlur = 30;
+  ctx2.shadowOffsetY = 8;
+  ctx2.fillStyle = COLOR.card;
+  roundRect(c.x, c.y, c.w, c.h, 24);
+  ctx2.fill();
+  ctx2.restore();
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = COLOR.subText;
+  ctx2.font = "600 15px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(mode === "boat" ? "\uD1B5\uD1B5\uBC30 \uC810\uC218" : "\uD1B5\uD1B5\uC0C8 \uC810\uC218", W / 2, c.y + 44);
+  ctx2.fillStyle = COLOR.text;
+  ctx2.font = "800 50px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(String(score), W / 2, c.y + 96);
+  if (isNewBest) {
+    ctx2.fillStyle = COLOR.newBest;
+    ctx2.font = "700 15px Pretendard, -apple-system, sans-serif";
+    ctx2.fillText("\u{1F389} \uC2E0\uAE30\uB85D\uC774\uC5D0\uC694!", W / 2, c.y + 124);
+  } else {
+    ctx2.fillStyle = COLOR.subText;
+    ctx2.font = "600 15px Pretendard, -apple-system, sans-serif";
+    ctx2.fillText(`\uCD5C\uACE0 \uAE30\uB85D ${best[mode]}\uC810`, W / 2, c.y + 124);
+  }
+  ctx2.fillStyle = COLOR.button;
+  roundRect(L.retry.x, L.retry.y, L.retry.w, L.retry.h, 14);
+  ctx2.fill();
+  ctx2.fillStyle = COLOR.buttonText;
+  ctx2.font = "700 17px Pretendard, -apple-system, sans-serif";
+  ctx2.textBaseline = "middle";
+  ctx2.fillText("\uB2E4\uC2DC\uD558\uAE30", W / 2, L.retry.y + L.retry.h / 2 + 1);
+  ctx2.fillStyle = "#E8F0FE";
+  roundRect(L.rank.x, L.rank.y, L.rank.w, L.rank.h, 14);
+  ctx2.fill();
+  ctx2.fillStyle = COLOR.button;
+  ctx2.fillText("\u{1F3C6} \uB7AD\uD0B9 \uBCF4\uAE30", W / 2, L.rank.y + L.rank.h / 2 + 1);
+  ctx2.textBaseline = "alphabetic";
+}
+function drawBoard() {
+  if (!boardOpen) return;
+  ctx2.fillStyle = "rgba(25, 31, 40, 0.55)";
+  ctx2.fillRect(0, 0, W, H);
+  const Lay = boardLayout();
+  const pan = Lay.panel;
+  ctx2.save();
+  ctx2.shadowColor = "rgba(0,0,0,0.18)";
+  ctx2.shadowBlur = 28;
+  ctx2.shadowOffsetY = 8;
+  ctx2.fillStyle = COLOR.card;
+  roundRect(pan.x, pan.y, pan.w, pan.h, 22);
+  ctx2.fill();
+  ctx2.restore();
+  ctx2.textAlign = "left";
+  ctx2.fillStyle = COLOR.text;
+  ctx2.font = "800 20px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText("\u{1F3C6} \uB7AD\uD0B9", pan.x + 24, pan.y + 38);
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = COLOR.subText;
+  ctx2.font = "700 22px Pretendard, -apple-system, sans-serif";
+  ctx2.textBaseline = "middle";
+  ctx2.fillText("\xD7", Lay.close.x + Lay.close.w / 2, Lay.close.y + Lay.close.h / 2);
+  ctx2.textBaseline = "alphabetic";
+  const tabs = [
+    [Lay.tabBird, "\uD1B5\uD1B5\uC0C8", "bird"],
+    [Lay.tabBoat, "\uD1B5\uD1B5\uBC30", "boat"]
+  ];
+  for (const [r, label, m] of tabs) {
+    const on = boardMode === m;
+    ctx2.fillStyle = on ? COLOR.button : "#F2F4F6";
+    roundRect(r.x, r.y, r.w, r.h, 12);
+    ctx2.fill();
+    ctx2.fillStyle = on ? "#FFFFFF" : COLOR.subText;
+    ctx2.textAlign = "center";
+    ctx2.textBaseline = "middle";
+    ctx2.font = "700 14px Pretendard, -apple-system, sans-serif";
+    ctx2.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 1);
+  }
+  ctx2.textBaseline = "alphabetic";
+  const listTop = Lay.tabBird.y + Lay.tabBird.h + 18;
+  const nick = getNick();
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = COLOR.subText;
+  ctx2.font = "600 14px Pretendard, -apple-system, sans-serif";
+  if (!isOnline()) {
+    ctx2.fillText("\uC628\uB77C\uC778 \uB9AC\uB354\uBCF4\uB4DC\uAC00 \uC544\uC9C1 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC5B4\uC694", W / 2, listTop + 38);
+    ctx2.fillText("Supabase \uD0A4\uB97C \uB123\uC73C\uBA74 \uC804\uCCB4 \uC21C\uC704\uAC00 \uBCF4\uC5EC\uC694", W / 2, listTop + 62);
+  } else if (boardRows === null) {
+    ctx2.fillText("\uBD88\uB7EC\uC624\uB294 \uC911\u2026", W / 2, listTop + 38);
+  } else if (boardRows.length === 0) {
+    ctx2.fillText("\uC544\uC9C1 \uAE30\uB85D\uC774 \uC5C6\uC5B4\uC694. 1\uB4F1\uC774 \uB418\uC5B4\uBCF4\uC138\uC694!", W / 2, listTop + 38);
+  } else {
+    const rowH = 34;
+    const room = Math.floor((pan.y + pan.h - 58 - listTop) / rowH);
+    const maxRows = Math.min(boardRows.length, room);
+    for (let i = 0; i < maxRows; i++) {
+      const row = boardRows[i];
+      const ry = listTop + i * rowH;
+      if (row.name === nick) {
+        ctx2.fillStyle = "#E8F0FE";
+        roundRect(pan.x + 16, ry - 2, pan.w - 32, rowH - 4, 9);
+        ctx2.fill();
+      }
+      ctx2.textBaseline = "middle";
+      const yc = ry + rowH / 2 - 2;
+      ctx2.textAlign = "left";
+      ctx2.fillStyle = i < 3 ? COLOR.newBest : COLOR.subText;
+      ctx2.font = "800 14px Pretendard, -apple-system, sans-serif";
+      ctx2.fillText(`${i + 1}`, pan.x + 26, yc);
+      ctx2.fillStyle = COLOR.text;
+      ctx2.font = "700 14px Pretendard, -apple-system, sans-serif";
+      ctx2.fillText(row.name, pan.x + 56, yc);
+      ctx2.textAlign = "right";
+      ctx2.fillText(`${row.score}`, pan.x + pan.w - 26, yc);
+    }
+    ctx2.textBaseline = "alphabetic";
+  }
+  let myRank = -1;
+  if (boardRows) {
+    const idx = boardRows.findIndex((r) => r.name === nick);
+    if (idx >= 0) myRank = idx + 1;
+  }
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = COLOR.subText;
+  ctx2.font = "700 14px Pretendard, -apple-system, sans-serif";
+  const rankTxt = isOnline() ? myRank > 0 ? `${myRank}\uC704` : "\uC21C\uC704\uAD8C \uBC16" : "\uB85C\uCEEC \uAE30\uB85D";
+  ctx2.fillText(`\uB0B4 \uCD5C\uACE0 ${best[boardMode]}\uC810 \xB7 ${rankTxt}`, W / 2, pan.y + pan.h - 22);
+}
+function drawParticles() {
+  for (const pa of particles) {
+    ctx2.globalAlpha = Math.max(0, pa.life / pa.max);
+    ctx2.fillStyle = pa.color;
+    ctx2.beginPath();
+    ctx2.arc(pa.x, pa.y, pa.size, 0, Math.PI * 2);
+    ctx2.fill();
+  }
+  ctx2.globalAlpha = 1;
+}
+function drawHearts() {
+  if (state === "gameover") return;
+  const r = 8.5;
+  const gap = 23;
+  const x0 = 16 + r;
+  const y0 = 24 + r;
+  for (let i = 0; i < HEART_MAX; i++) {
+    const filled = i < lives;
+    ctx2.save();
+    ctx2.translate(x0 + i * gap, y0);
+    if (filled && healPulse > 0 && i === lives - 1) {
+      const sc = 1 + healPulse * 0.5;
+      ctx2.scale(sc, sc);
+    }
+    ctx2.fillStyle = filled ? "#F04452" : "rgba(139,149,161,0.26)";
+    ctx2.beginPath();
+    ctx2.moveTo(0, r * 0.72);
+    ctx2.bezierCurveTo(-r * 1.3, -r * 0.3, -r * 0.5, -r * 1.1, 0, -r * 0.4);
+    ctx2.bezierCurveTo(r * 0.5, -r * 1.1, r * 1.3, -r * 0.3, 0, r * 0.72);
+    ctx2.closePath();
+    ctx2.fill();
+    ctx2.restore();
+  }
+}
+function drawStageBanner() {
+  if (stageBanner <= 0 || state !== "playing") return;
+  const th = theme();
+  const t = STAGE_BANNER_TIME - stageBanner;
+  const a = Math.max(0, Math.min(1, Math.min(t / 0.25, stageBanner / 0.35)));
+  const y = playH() * 0.34;
+  const bw = 230;
+  const bh = 88;
+  ctx2.save();
+  ctx2.globalAlpha = a;
+  ctx2.textAlign = "center";
+  ctx2.fillStyle = "rgba(25,31,40,0.82)";
+  roundRect(W / 2 - bw / 2, y - bh / 2, bw, bh, 18);
+  ctx2.fill();
+  ctx2.fillStyle = "#FFFFFF";
+  ctx2.font = "800 27px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(`STAGE ${stage}`, W / 2, y - 4);
+  ctx2.fillStyle = "#FFD7DE";
+  ctx2.font = "700 15px Pretendard, -apple-system, sans-serif";
+  const intro = stageIntro(stage);
+  ctx2.fillText(
+    intro ? `${intro}  \u{1F48A}+1` : `${th.name} \xB7 \u{1F48A} \uC0DD\uBA85 +1`,
+    W / 2,
+    y + 24
+  );
+  ctx2.restore();
+}
+function drawMute() {
+  const r = muteButton();
+  ctx2.save();
+  ctx2.globalAlpha = 0.8;
+  ctx2.textAlign = "center";
+  ctx2.textBaseline = "middle";
+  ctx2.font = "600 21px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(isMuted() ? "\u{1F507}" : "\u{1F50A}", r.x + r.w / 2, r.y + r.h / 2 + 1);
+  ctx2.restore();
+  ctx2.textBaseline = "alphabetic";
+}
+function drawPortalWarning() {
+  const warnKind = pendingPortal?.kind ?? gravQueued;
+  if (!warnKind || state !== "playing") return;
+  const s2 = PORTAL_STYLE[warnKind];
+  const blink = 0.55 + 0.45 * Math.sin(performance.now() / 90);
+  const fromRight = mods.dir > 0;
+  const y = playH() * 0.32;
+  const bw = 156;
+  const bh = 38;
+  ctx2.save();
+  ctx2.globalAlpha = blink;
+  ctx2.textAlign = "center";
+  ctx2.textBaseline = "middle";
+  ctx2.fillStyle = s2.c;
+  roundRect(W / 2 - bw / 2, y - bh / 2, bw, bh, 19);
+  ctx2.fill();
+  ctx2.fillStyle = "#FFFFFF";
+  ctx2.font = "800 15px Pretendard, -apple-system, sans-serif";
+  ctx2.fillText(`${s2.glyph} ${s2.label} \uC8FC\uC758!`, W / 2, y + 1);
+  ctx2.font = "800 34px Pretendard, -apple-system, sans-serif";
+  ctx2.fillStyle = s2.c;
+  ctx2.fillText(fromRight ? "\u25C0" : "\u25B6", fromRight ? W - 26 : 26, playH() / 2);
+  ctx2.restore();
+  ctx2.textBaseline = "alphabetic";
+}
+function frame(now) {
+  const dt = Math.min(0.033, (now - lastTime) / 1e3 || 0.016);
+  lastTime = now;
+  update(dt);
+  let sx = 0;
+  let sy = 0;
+  if (shake > 0) {
+    sx = (Math.random() - 0.5) * shake;
+    sy = (Math.random() - 0.5) * shake;
+  }
+  ctx2.save();
+  ctx2.translate(sx, sy);
+  drawBackground();
+  drawPipes();
+  drawPortals();
+  drawParticles();
+  drawBird();
+  drawPortalWarning();
+  drawScore();
+  drawActiveBadges();
+  drawHearts();
+  drawReady();
+  ctx2.restore();
+  if (flash > 0) {
+    ctx2.fillStyle = `rgba(240, 68, 82, ${flash * 0.35})`;
+    ctx2.fillRect(0, 0, W, H);
+  }
+  if (stageFlash > 0) {
+    ctx2.fillStyle = `rgba(255, 214, 120, ${stageFlash * 0.4})`;
+    ctx2.fillRect(0, 0, W, H);
+  }
+  drawStageBanner();
+  drawGameOver();
+  drawBoard();
+  drawMute();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
