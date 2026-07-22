@@ -1,0 +1,16 @@
+{
+  "name": "통통 점프",
+  "short_name": "통통새",
+  "description": "포탈 기믹 플래피 게임 — 통통새 & 통통배",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E8F3FF",
+  "theme_color": "#E8F3FF",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -19,3 +19,7 @@ npm-debug.log*
 # 환경 변수 (혹시 비밀키 쓰게 되면)
 .env
 .env.local
+
+# 중복 PWA 작업폴더/배포 zip
+pwa/
+*.zip
