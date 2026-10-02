@@ -17,14 +17,15 @@ jobs:
         run: |
           SUPABASE_URL="https://qdxmexgbvczmlcekuqqj.supabase.co"
           ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkeG1leGdidmN6bWxjZWt1cXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MjgyMTAsImV4cCI6MjA5NzIwNDIxMH0.VzBYg_07encpuNpnIQqOqe5J_FI3ykwXQS9Kz4k8030"
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          CODE=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w "%{http_code}" \
             "$SUPABASE_URL/rest/v1/scores?select=id&limit=1" \
             -H "apikey: $ANON" \
             -H "Authorization: Bearer $ANON")
           echo "Supabase 응답 코드: $CODE"
-          # 200(정상) 또는 최소한 응답이 오면 성공으로 간주
+          # Only HTTP 200 confirms a successful database request.
           if [ "$CODE" = "200" ]; then
             echo "keep-alive 성공 ✅"
           else
-            echo "응답 코드 $CODE — 프로젝트가 이미 정지됐거나 점검이 필요할 수 있어요"
+            echo "::error::Supabase keep-alive failed: HTTP $CODE (expected 200)"
+            exit 1
           fi
